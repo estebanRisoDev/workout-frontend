@@ -8,6 +8,7 @@ export default function WorkoutsLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="armar" />
       <Stack.Screen name="[id]" />
     </Stack>
   );

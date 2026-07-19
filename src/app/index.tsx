@@ -1,11 +1,37 @@
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, Line, Pattern, Rect } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Accent, BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import {
+  esDeHoy,
+  findTodaysWorkout,
+  firstName,
+  formatTotalVolume,
+  initials,
+  monthCount,
+  streakDays,
+  todayLabel,
+  weekCount,
+  weekStatuses,
+  workoutSummary,
+  type DayStatus,
+} from '@/data/stats';
 import { useTheme } from '@/hooks/use-theme';
+import { useWorkouts } from '@/store/workouts-store';
+
+/** Objetivo semanal por defecto. Aún no es configurable (no hay campo en la base). */
+const OBJETIVO_SEMANAL = 5;
+
+/** Color de cada barrita de la racha según su estado. */
+const COLOR_DIA: Record<DayStatus, string> = {
+  done: Accent, // completado
+  missed: '#d9d9d9', // el día pasó sin completar
+  future: '#3a3a3a', // todavía no llega
+};
 
 /**
  * Barra de progreso circular dibujada con SVG.
@@ -16,7 +42,7 @@ function CircularProgress({
   size = 90,
   stroke = 10,
   progress = 0,
-  color = '#b5e838',
+  color = Accent,
   children,
 }: {
   size?: number;
@@ -86,12 +112,17 @@ function StripesBackground({ color = '#e2e2e2' }: { color?: string }) {
 }
 
 export default function HomeScreen() {
-  const done = 4;
-  const goal = 5;
+  const router = useRouter();
+  const { workouts, user, status } = useWorkouts();
 
-  // 7 días de la semana. true = entrenado (verde), false = pendiente (gris).
-  // Por ahora fijos; luego se reemplazan por datos reales.
-  const week = [true, true, true, true, true, true, false];
+  const done = weekCount(workouts);
+  const goal = OBJETIVO_SEMANAL;
+
+  // 7 barritas (lunes→domingo) derivadas de los `done` de cada workout.
+  const week = weekStatuses(workouts);
+
+  const hoy = findTodaysWorkout(workouts);
+  const resumen = hoy ? workoutSummary(hoy) : null;
 
   return (
     <ThemedView style={styles.container}>
@@ -104,13 +135,20 @@ export default function HomeScreen() {
         <View style={styles.topSection}>
           <View style={styles.topSubSection}>
             <ThemedText type="small" themeColor="textSecondary">
-              Jueves 17 de Jul
+              {todayLabel()}
             </ThemedText>
-            <ThemedText type="subtitle">Buenas, Alex</ThemedText>
+            <ThemedText type="subtitle">
+              Buenas, {firstName(user?.name ?? null, user?.email)}
+            </ThemedText>
           </View>
 
-          <Pressable style={styles.loginButton}>
-            <ThemedText style={{ color: 'white' }}>AR</ThemedText>
+          <Pressable
+            onPress={() => router.push('/perfil')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.loginButton, pressed && styles.pressed]}>
+            <ThemedText style={{ color: 'white' }}>
+              {initials(user?.name ?? null, user?.email)}
+            </ThemedText>
           </Pressable>
         </View>
 
@@ -121,15 +159,15 @@ export default function HomeScreen() {
               RACHA
             </ThemedText>
             <ThemedText type="subtitle" style={{ color: 'white' }}>
-              6 días
+              {streakDays(workouts)} {streakDays(workouts) === 1 ? 'día' : 'días'}
             </ThemedText>
 
             {/* fila de 7 días: una barrita por día */}
             <View style={styles.weekRow}>
-              {week.map((trained, i) => (
+              {week.map((estado, i) => (
                 <View
                   key={i}
-                  style={[styles.dayBar, { backgroundColor: trained ? '#b5e838' : '#3a3a3a' }]}
+                  style={[styles.dayBar, { backgroundColor: COLOR_DIA[estado] }]}
                 />
               ))}
             </View>
@@ -152,57 +190,88 @@ export default function HomeScreen() {
           ENTRENAMIENTO DE HOY
         </ThemedText>
 
-        <View style={styles.todayCard}>
-          {/* parte superior: "foto" con franjas */}
-          <View style={styles.todayPhoto}>
-            <StripesBackground />
+        {status === 'loading' && !hoy && <ActivityIndicator style={styles.todayLoader} />}
 
-            <View style={styles.dayPill}>
-              <ThemedText type="smallBold" style={styles.dayPillText}>
-                DÍA DE EMPUJE
+        {status !== 'loading' && !hoy && (
+          <View style={styles.todayCard}>
+            <View style={styles.todayInfo}>
+              <ThemedText type="subtitle" style={styles.todayTitle}>
+                Sin workouts todavía
               </ThemedText>
-            </View>
-
-            <View style={styles.photoTag}>
-              <ThemedText type="small" style={styles.photoTagText}>
-                foto rutina · empuje
+              <ThemedText type="small" style={styles.metaText}>
+                Arma tu primera rutina y aparecerá acá.
               </ThemedText>
-            </View>
-          </View>
-
-          {/* parte inferior: info + acciones */}
-          <View style={styles.todayInfo}>
-            <ThemedText type="subtitle" style={styles.todayTitle}>
-              Pecho · Hombro · Tríceps
-            </ThemedText>
-
-            <View style={styles.metaRow}>
-              <ThemedText type="small" style={styles.metaText}>5 ejercicios</ThemedText>
-              <ThemedText type="small" style={styles.metaDot}>·</ThemedText>
-              <ThemedText type="small" style={styles.metaText}>~52 min</ThemedText>
-              <ThemedText type="small" style={styles.metaDot}>·</ThemedText>
-              <ThemedText type="small" style={styles.metaText}>Intermedio</ThemedText>
-            </View>
-
-            <View style={styles.todayActions}>
-              <Pressable style={styles.startButton}>
+              <Pressable
+                onPress={() => router.push('/workouts/armar')}
+                style={({ pressed }) => [styles.startButton, pressed && styles.pressed]}>
                 <ThemedText type="smallBold" style={styles.startButtonText}>
-                  ▶  Empezar
+                  Armar workout
                 </ThemedText>
               </Pressable>
-
-              <Pressable style={styles.iconButton}>
-                <ThemedText style={styles.iconButtonText}>›</ThemedText>
-              </Pressable>
             </View>
           </View>
-        </View>
+        )}
+
+        {hoy && resumen && (
+          <View style={styles.todayCard}>
+            {/* parte superior: "foto" con franjas */}
+            <View style={styles.todayPhoto}>
+              <StripesBackground />
+
+              {/* La píldora sale de `Workout.day`; si no coincide con hoy, se avisa. */}
+              <View style={styles.dayPill}>
+                <ThemedText type="smallBold" style={styles.dayPillText}>
+                  {(hoy.day || 'Sin día asignado').toUpperCase()}
+                </ThemedText>
+              </View>
+
+              <View style={styles.photoTag}>
+                <ThemedText type="small" style={styles.photoTagText}>
+                  {esDeHoy(hoy) ? 'programado para hoy' : 'tu rutina más reciente'}
+                </ThemedText>
+              </View>
+            </View>
+
+            {/* parte inferior: info + acciones */}
+            <View style={styles.todayInfo}>
+              <ThemedText type="subtitle" style={styles.todayTitle}>
+                {hoy.title}
+              </ThemedText>
+
+              <View style={styles.metaRow}>
+                <ThemedText type="small" style={styles.metaText}>
+                  {resumen.exercises} {resumen.exercises === 1 ? 'ejercicio' : 'ejercicios'}
+                </ThemedText>
+                <ThemedText type="small" style={styles.metaDot}>·</ThemedText>
+                <ThemedText type="small" style={styles.metaText}>~{resumen.minutes} min</ThemedText>
+                <ThemedText type="small" style={styles.metaDot}>·</ThemedText>
+                <ThemedText type="small" style={styles.metaText}>{resumen.sets} series</ThemedText>
+              </View>
+
+              <View style={styles.todayActions}>
+                <Pressable
+                  onPress={() => router.push(`/workouts/${hoy.id}`)}
+                  style={({ pressed }) => [styles.startButton, pressed && styles.pressed]}>
+                  <ThemedText type="smallBold" style={styles.startButtonText}>
+                    ▶  Empezar
+                  </ThemedText>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => router.push(`/workouts/${hoy.id}`)}
+                  style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+                  <ThemedText style={styles.iconButtonText}>›</ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ESTADÍSTICAS: dos tarjetas */}
         <View style={styles.statsRow}>
           {[
-            { value: '14', label: 'Entrenos / mes' },
-            { value: '32.4t', label: 'Volumen total' },
+            { value: String(monthCount(workouts)), label: 'Entrenos / mes' },
+            { value: formatTotalVolume(workouts), label: 'Volumen total' },
           ].map((stat) => (
             <View key={stat.label} style={styles.statCard}>
               <ThemedText type="title" style={styles.statValue}>
@@ -327,7 +396,7 @@ const styles = StyleSheet.create({
   },
 
   dayPill: {
-    backgroundColor: '#b5e838',
+    backgroundColor: Accent,
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: 9999,
@@ -376,7 +445,7 @@ const styles = StyleSheet.create({
     flex: 1, // ocupa el ancho disponible
     height: 56,
     borderRadius: 16,
-    backgroundColor: '#b5e838',
+    backgroundColor: Accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -424,5 +493,12 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     color: '#6b6b6b',
+  },
+
+  todayLoader: {
+    marginVertical: Spacing.five,
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });

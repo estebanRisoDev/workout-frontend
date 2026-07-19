@@ -13,10 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from './themed-text';
 
-import { Spacing } from '@/constants/theme';
+import { Accent, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-
-const ACCENT = '#b5e838';
 
 export default function AppTabs() {
   return (
@@ -128,7 +126,7 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 20,
-    backgroundColor: ACCENT,
+    backgroundColor: Accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: -28, // se eleva por encima de la barra

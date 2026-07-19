@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -11,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { type Exercise, type ExerciseSet } from '@/data/workouts';
+import { type WorkoutExercise, type WorkoutSet, type WorkoutSetInput } from '@/data/workouts';
 import { BottomTabInset, Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useWorkouts } from '@/store/workouts-store';
@@ -21,6 +22,8 @@ export default function WorkoutDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const {
+    status,
+    error,
     getWorkout,
     updateWorkout,
     removeWorkout,
@@ -34,20 +37,39 @@ export default function WorkoutDetailScreen() {
 
   const workout = getWorkout(id);
 
+  // Entrar por deep link antes de que termine la carga inicial no es "no existe".
+  if (!workout && status === 'loading') {
+    return (
+      <ThemedView style={styles.centered}>
+        <ActivityIndicator />
+      </ThemedView>
+    );
+  }
+
   if (!workout) {
     return (
       <ThemedView style={styles.centered}>
         <ThemedText type="subtitle">Rutina no encontrada</ThemedText>
-        <Pressable onPress={() => router.back()}>
-          <ThemedText type="linkPrimary">Volver</ThemedText>
+        <Pressable onPress={() => router.replace('/workouts')}>
+          <ThemedText type="linkPrimary">Volver a Rutinas</ThemedText>
         </Pressable>
       </ThemedView>
     );
   }
 
-  function handleDelete() {
-    removeWorkout(workout!.id);
-    router.back();
+  /**
+   * Tras borrar se va SIEMPRE a la lista, no `router.back()`.
+   *
+   * Si la rutina se creó desde el constructor, la pantalla anterior del stack
+   * es "Armar workout": con `back()` terminabas en el constructor después de
+   * eliminar, que no es donde nadie espera aterrizar.
+   *
+   * Se espera al servidor antes de navegar: si el borrado falla, el store
+   * revierte y conviene seguir viendo la rutina en vez de haberse ido ya.
+   */
+  async function handleDelete() {
+    await removeWorkout(workout!.id);
+    router.replace('/workouts');
   }
 
   return (
@@ -61,7 +83,9 @@ export default function WorkoutDetailScreen() {
             paddingBottom: insets.bottom + BottomTabInset + Spacing.five,
           },
         ]}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
+        {/* Va explícitamente a la lista: el botón dice "Rutinas" y `back()` no
+            garantizaba llegar ahí (podía devolver al constructor). */}
+        <Pressable onPress={() => router.replace('/workouts')} hitSlop={8}>
           <ThemedText type="linkPrimary">‹ Rutinas</ThemedText>
         </Pressable>
 
@@ -84,21 +108,27 @@ export default function WorkoutDetailScreen() {
           multiline
         />
 
+        {error ? (
+          <ThemedText type="small" themeColor="textSecondary">
+            ⚠︎ {error}
+          </ThemedText>
+        ) : null}
+
         {workout.exercises.map((ex) => (
           <ExerciseCard
             key={ex.id}
             exercise={ex}
             onRename={(name) => updateExercise(workout.id, ex.id, { name })}
-            onEditMuscle={(muscle) => updateExercise(workout.id, ex.id, { muscle })}
-            onRemove={() => removeExercise(workout.id, ex.id)}
-            onAddSet={() => addSet(workout.id, ex.id)}
+            onEditMuscle={(muscleGroup) => updateExercise(workout.id, ex.id, { muscleGroup })}
+            onRemove={() => void removeExercise(workout.id, ex.id)}
+            onAddSet={() => void addSet(workout.id, ex.id)}
             onUpdateSet={(setId, patch) => updateSet(workout.id, ex.id, setId, patch)}
-            onRemoveSet={(setId) => removeSet(workout.id, ex.id, setId)}
+            onRemoveSet={(setId) => void removeSet(workout.id, ex.id, setId)}
           />
         ))}
 
         <Pressable
-          onPress={() => addExercise(workout.id)}
+          onPress={() => void addExercise(workout.id)}
           style={({ pressed }) => pressed && styles.pressed}>
           <ThemedView type="backgroundSelected" style={styles.bigButton}>
             <ThemedText type="smallBold">+ Añadir ejercicio</ThemedText>
@@ -124,12 +154,12 @@ function ExerciseCard({
   onUpdateSet,
   onRemoveSet,
 }: {
-  exercise: Exercise;
+  exercise: WorkoutExercise;
   onRename: (name: string) => void;
-  onEditMuscle: (muscle: string) => void;
+  onEditMuscle: (muscleGroup: string) => void;
   onRemove: () => void;
   onAddSet: () => void;
-  onUpdateSet: (setId: string, patch: Partial<Omit<ExerciseSet, 'id'>>) => void;
+  onUpdateSet: (setId: string, patch: WorkoutSetInput) => void;
   onRemoveSet: (setId: string) => void;
 }) {
   return (
@@ -137,13 +167,13 @@ function ExerciseCard({
       <ThemedView type="backgroundElement" style={styles.cardHeader}>
         <ThemedView type="backgroundElement" style={styles.cardHeaderText}>
           <Field
-            value={exercise.name}
+            value={exercise.exercise.name}
             onChangeText={onRename}
             placeholder="Nombre del ejercicio"
             textType="subtitle"
           />
           <Field
-            value={exercise.muscle ?? ''}
+            value={exercise.exercise.muscleGroup ?? ''}
             onChangeText={onEditMuscle}
             placeholder="Grupo muscular"
           />
@@ -191,8 +221,8 @@ function SetRow({
   onRemove,
 }: {
   index: number;
-  set: ExerciseSet;
-  onUpdate: (patch: Partial<Omit<ExerciseSet, 'id'>>) => void;
+  set: WorkoutSet;
+  onUpdate: (patch: WorkoutSetInput) => void;
   onRemove: () => void;
 }) {
   return (
@@ -200,13 +230,14 @@ function SetRow({
       <ThemedText type="small" themeColor="textSecondary" style={[styles.cell, { flex: 0.5 }]}>
         {index}
       </ThemedText>
-      <NumberCell value={set.reps} onChangeNumber={(reps) => onUpdate({ reps })} />
-      <NumberCell value={set.weight} onChangeNumber={(weight) => onUpdate({ weight })} />
+      {/* `reps` es obligatorio en el backend: vaciar el campo cuenta como 0. */}
+      <NumberCell value={set.reps} onChangeNumber={(reps) => onUpdate({ reps: reps ?? 0 })} />
       <NumberCell
-        value={set.rpe}
-        onChangeNumber={(rpe) => onUpdate({ rpe })}
+        value={set.weightKg}
+        onChangeNumber={(weightKg) => onUpdate({ weightKg })}
         placeholder="-"
       />
+      <NumberCell value={set.rpe} onChangeNumber={(rpe) => onUpdate({ rpe })} placeholder="-" />
       <Pressable
         onPress={() => onUpdate({ done: !set.done })}
         style={[styles.cell, { flex: 0.6 }]}
@@ -239,16 +270,16 @@ function NumberCell({
   onChangeNumber,
   placeholder,
 }: {
-  value: number | undefined;
-  onChangeNumber: (n: number | undefined) => void;
+  value: number | null;
+  onChangeNumber: (n: number | null) => void;
   placeholder?: string;
 }) {
   const theme = useTheme();
   return (
     <TextInput
-      value={value === undefined ? '' : String(value)}
+      value={value === null ? '' : String(value)}
       onChangeText={(t) => {
-        if (t.trim() === '') return onChangeNumber(undefined);
+        if (t.trim() === '') return onChangeNumber(null);
         const n = Number(t.replace(',', '.'));
         if (!Number.isNaN(n)) onChangeNumber(n);
       }}

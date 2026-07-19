@@ -26,6 +26,15 @@ export const Colors = {
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
+/**
+ * Color de acento de la app: botón central, "Empezar", píldora del día y las
+ * barritas de racha completadas. Está acá para cambiarlo en un solo lugar.
+ *
+ * Se usa siempre con texto/íconos negros encima, así que tiene que mantenerse
+ * claro y saturado para conservar el contraste.
+ */
+export const Accent = '#38bdf8';
+
 export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */

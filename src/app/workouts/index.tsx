@@ -1,26 +1,22 @@
-import { Link, useRouter } from 'expo-router';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Link } from 'expo-router';
+import { ActivityIndicator, Platform, Pressable, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { totalSets, totalVolume, type Workout } from '@/data/workouts';
+import { WorkoutsSegmented } from '@/components/workouts-segmented';
+import { formatWorkoutDate, totalSets, totalVolume, type Workout } from '@/data/workouts';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useWorkouts } from '@/store/workouts-store';
 
 export default function WorkoutsListScreen() {
-  const { workouts, addWorkout } = useWorkouts();
-  const router = useRouter();
+  const { workouts, status, error, reload } = useWorkouts();
   const insets = useSafeAreaInsets();
-
-  function handleAdd() {
-    const w = addWorkout();
-    router.push(`/workouts/${w.id}`);
-  }
 
   return (
     <ThemedView style={styles.container}>
       <ScrollView
+        refreshControl={<RefreshControl refreshing={status === 'loading'} onRefresh={reload} />}
         contentContainerStyle={[
           styles.content,
           {
@@ -28,27 +24,41 @@ export default function WorkoutsListScreen() {
             paddingBottom: insets.bottom + BottomTabInset + Spacing.four,
           },
         ]}>
-        <ThemedView style={styles.header}>
-          <ThemedText type="title">Rutinas</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {workouts.length} {workouts.length === 1 ? 'rutina' : 'rutinas'}
-          </ThemedText>
-        </ThemedView>
+        <ThemedText type="title">Rutinas</ThemedText>
+        <WorkoutsSegmented />
 
-        <Pressable onPress={handleAdd} style={({ pressed }) => pressed && styles.pressed}>
-          <ThemedView type="backgroundSelected" style={styles.addButton}>
-            <ThemedText type="smallBold">+ Nueva rutina</ThemedText>
+        {error ? (
+          <ThemedView style={styles.notice}>
+            <ThemedText type="small" themeColor="textSecondary">
+              {error}
+            </ThemedText>
+            <Pressable onPress={reload} hitSlop={8}>
+              <ThemedText type="linkPrimary">Reintentar</ThemedText>
+            </Pressable>
           </ThemedView>
-        </Pressable>
+        ) : null}
 
         {workouts.map((w) => (
           <WorkoutCard key={w.id} workout={w} />
         ))}
 
-        {workouts.length === 0 && (
-          <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
-            No hay rutinas todavía. Crea la primera para empezar a programar.
-          </ThemedText>
+        {/* El spinner ocupa solo el área de la lista, no toda la sección. */}
+        {status === 'loading' && workouts.length === 0 && (
+          <ActivityIndicator style={styles.listLoader} />
+        )}
+
+        {/* Sin botón propio de "crear": la entrada al constructor es la pestaña
+            de arriba. Un segundo botón acá competía con ella y hacía parecer
+            que había dos formas distintas de armar una rutina. */}
+        {status === 'ready' && workouts.length === 0 && (
+          <ThemedView style={styles.emptyBox}>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
+              Aún no tienes rutinas guardadas.
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" style={styles.empty}>
+              Crea una desde la pestaña «Armar workout».
+            </ThemedText>
+          </ThemedView>
         )}
       </ScrollView>
     </ThemedView>
@@ -61,11 +71,10 @@ function WorkoutCard({ workout }: { workout: Workout }) {
       <Pressable style={({ pressed }) => pressed && styles.pressed}>
         <ThemedView type="backgroundElement" style={styles.card}>
           <ThemedText type="subtitle">{workout.title}</ThemedText>
-          {workout.day ? (
-            <ThemedText type="small" themeColor="textSecondary">
-              {workout.day}
-            </ThemedText>
-          ) : null}
+          <ThemedText type="small" themeColor="textSecondary">
+            {workout.day ? `${workout.day} · ` : ''}
+            {formatWorkoutDate(workout)}
+          </ThemedText>
 
           <ThemedView type="backgroundElement" style={styles.metaRow}>
             <Stat label="Ejercicios" value={workout.exercises.length} />
@@ -101,14 +110,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     gap: Spacing.three,
   },
-  header: {
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.four,
+  },
+  notice: {
     gap: Spacing.one,
   },
-  addButton: {
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    borderRadius: Spacing.three,
-    alignItems: 'center',
+  listLoader: {
+    marginTop: Spacing.five,
+  },
+  emptyBox: {
+    gap: Spacing.three,
+    marginTop: Spacing.four,
   },
   card: {
     padding: Spacing.four,
