@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ExerciseThumb } from '@/components/exercise-thumb';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WorkoutsSegmented } from '@/components/workouts-segmented';
@@ -189,8 +190,11 @@ export default function ArmarWorkoutScreen() {
                 <ThemedView
                   type={picked.has(ex.id) ? 'backgroundSelected' : 'backgroundElement'}
                   style={styles.exerciseRow}>
-                  <ThemedText type="default">{ex.name}</ThemedText>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
+                  <ExerciseThumb url={ex.imageUrl} size={40} />
+                  <ThemedText type="default" style={styles.exerciseName} numberOfLines={2}>
+                    {ex.name}
+                  </ThemedText>
+                  <ThemedText type="smallBold" themeColor="textSecondary" style={styles.pickMark}>
                     {picked.has(ex.id) ? '✓' : '+'}
                   </ThemedText>
                 </ThemedView>
@@ -222,7 +226,9 @@ function DraftRow({
       </ThemedText>
 
       <ThemedView type="backgroundElement" style={styles.draftMain}>
-        <ThemedText type="smallBold">{item.name}</ThemedText>
+        <ThemedText type="smallBold" numberOfLines={2}>
+          {item.name}
+        </ThemedText>
         <ThemedView type="backgroundElement" style={styles.draftInputs}>
           <MiniNumber
             label="series"
@@ -375,10 +381,13 @@ const styles = StyleSheet.create({
   exerciseRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.three,
+    gap: Spacing.three,
+    paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,
   },
+  exerciseName: { flex: 1, flexShrink: 1 },
+  // Ancho fijo para el +/✓: así un nombre largo nunca lo empuja fuera del margen.
+  pickMark: { width: 16, textAlign: 'center' },
   pressed: { opacity: 0.7 },
 });

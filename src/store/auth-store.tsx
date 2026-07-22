@@ -24,6 +24,7 @@ import {
 
 import { fetchMe, loginWithGoogle, logout as apiLogout } from '@/api/auth';
 import { clearToken, loadToken } from '@/api/token';
+import { updateProfile as apiUpdateProfile, type ProfileInput } from '@/api/users';
 import type { User } from '@/data/workouts';
 
 /**
@@ -48,6 +49,8 @@ type AuthContextValue = {
   error: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Guarda datos del perfil (onboarding y edición) y refresca el usuario. */
+  updateProfile: (input: ProfileInput) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -132,9 +135,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
+  // El backend devuelve el usuario ya actualizado; lo adoptamos como fuente de
+  // verdad para que el onboarding/Perfil reflejen justo lo que quedó guardado.
+  const updateProfile = useCallback(async (input: ProfileInput) => {
+    const fresh = await apiUpdateProfile(input);
+    setUser(fresh);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, error, signInWithGoogle, signOut }),
-    [user, status, error, signInWithGoogle, signOut]
+    () => ({ user, status, error, signInWithGoogle, signOut, updateProfile }),
+    [user, status, error, signInWithGoogle, signOut, updateProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

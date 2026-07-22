@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import {
   TabList,
   TabListProps,
@@ -13,10 +12,27 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from './themed-text';
 
-import { Accent, Spacing } from '@/constants/theme';
+import { Spacing } from '@/constants/theme';
+import { isTeacher } from '@/data/workouts';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/store/auth-store';
 
+/**
+ * Barra principal, distinta según el rol:
+ *
+ *  - **Alumno**: Inicio · Rutinas · Dieta · Comunidad · Perfil.
+ *  - **Profesor**: Inicio · **Estadísticas** · Comunidad · Perfil. El profe no
+ *    entrena ni lleva dieta, así que Rutinas y Dieta no le aparecen; en su lugar
+ *    "Estadísticas" abre directo el roster de alumnos (`/dieta/fisico`), donde ve
+ *    su progreso físico y registra los pliegues JP7.
+ *
+ * Otras estadísticas (kcal/semana, progresión por ejercicio) viven dentro de
+ * **Rutinas** (`/workouts/estadisticas`) y no necesitan trigger propio acá.
+ */
 export default function AppTabs() {
+  const { user } = useAuth();
+  const teacher = isTeacher(user);
+
   return (
     <Tabs>
       <TabSlot />
@@ -26,17 +42,26 @@ export default function AppTabs() {
             <TabButton icon="home" label="Inicio" />
           </TabTrigger>
 
-          <TabTrigger name="workouts" href="/workouts" asChild>
-            <TabButton icon="file-text" label="Rutinas" />
+          {teacher ? (
+            // El profe: una sola pestaña de gestión, las estadísticas de alumnos.
+            <TabTrigger name="dieta" href="/dieta/fisico" asChild>
+              <TabButton icon="bar-chart-2" label="Estadísticas" />
+            </TabTrigger>
+          ) : (
+            // El alumno: sus dos secciones propias.
+            <TabTrigger name="workouts" href="/workouts" asChild>
+              <TabButton icon="activity" label="Rutinas" />
+            </TabTrigger>
+          )}
+          {!teacher && (
+            <TabTrigger name="dieta" href="/dieta" asChild>
+              <TabButton icon="coffee" label="Dieta" />
+            </TabTrigger>
+          )}
+
+          <TabTrigger name="comunidad" href="/comunidad" asChild>
+            <TabButton icon="users" label="Comunidad" />
           </TabTrigger>
-
-          {/* Botón central de acción (no es una pestaña, dispara "empezar") */}
-          <StartButton />
-
-          <TabTrigger name="progreso" href="/progreso" asChild>
-            <TabButton icon="bar-chart-2" label="Progreso" />
-          </TabTrigger>
-
           <TabTrigger name="perfil" href="/perfil" asChild>
             <TabButton icon="user" label="Perfil" />
           </TabTrigger>
@@ -82,24 +107,15 @@ function TabButton({
   return (
     <Pressable {...props} style={styles.tabItem}>
       <Feather name={icon} size={22} color={color} />
-      <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
+      <ThemedText
+        type="small"
+        themeColor={isFocused ? 'text' : 'textSecondary'}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={styles.tabLabel}>
         {label}
       </ThemedText>
     </Pressable>
-  );
-}
-
-/** Botón central verde elevado. */
-function StartButton() {
-  const router = useRouter();
-  return (
-    <View style={styles.fabSlot}>
-      <Pressable
-        onPress={() => router.push('/workouts')}
-        style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
-        <Feather name="play" size={26} color="black" style={{ marginLeft: 3 }} />
-      </Pressable>
-    </View>
   );
 }
 
@@ -118,26 +134,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.half,
   },
-  fabSlot: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  fab: {
-    width: 58,
-    height: 58,
-    borderRadius: 20,
-    backgroundColor: Accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -28, // se eleva por encima de la barra
-    // sombra
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  pressed: {
-    opacity: 0.85,
-  },
+  tabLabel: { fontSize: 11 },
 });

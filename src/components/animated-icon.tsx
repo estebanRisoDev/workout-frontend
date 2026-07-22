@@ -33,7 +33,13 @@ export function AnimatedSplashOverlay() {
     },
   });
 
-  const image = <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />;
+  const image = (
+    <Image
+      style={styles.image}
+      contentFit="contain"
+      source={require('@/assets/images/logo_mobase.jpeg')}
+    />
+  );
 
   return animate ? (
     <Animated.View
@@ -104,7 +110,11 @@ export function AnimatedIcon() {
 
       <Animated.View entering={keyframe.duration(DURATION)} style={styles.background} />
       <Animated.View style={styles.imageContainer} entering={logoKeyframe.duration(DURATION)}>
-        <Image style={styles.image} source={require('@/assets/images/expo-logo.png')} />
+        <Image
+          style={styles.image}
+          contentFit="contain"
+          source={require('@/assets/images/logo_mobase.jpeg')}
+        />
       </Animated.View>
     </View>
   );
@@ -128,19 +138,21 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   image: {
-    width: 76,
-    height: 71,
+    // Logo MOBASE FIT: banner horizontal en vez del ícono cuadrado de Expo.
+    width: 240,
+    height: 240,
   },
   background: {
     borderRadius: 40,
-    experimental_backgroundImage: `linear-gradient(180deg, #3C9FFE, #0274DF)`,
+    experimental_backgroundImage: `linear-gradient(180deg, #1a1a1a, #000000)`,
     width: 128,
     height: 128,
     position: 'absolute',
   },
   splashOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#208AEF',
+    // Negro para fundirse con el fondo del logo de la marca.
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,

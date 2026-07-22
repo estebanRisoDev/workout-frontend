@@ -29,13 +29,10 @@ export default function LoginScreen() {
         <View style={styles.content}>
           <View style={styles.brand}>
             <Image
-              source={require('@/../assets/images/icon.png')}
+              source={require('@/assets/images/logo_mobase.jpeg')}
               style={styles.logo}
-              resizeMode="contain"
+              resizeMode="cover"
             />
-            <ThemedText type="title" style={styles.title}>
-              WorkoutApp
-            </ThemedText>
             <ThemedText type="small" themeColor="textSecondary" style={styles.subtitle}>
               Arma tus rutinas, registra tus series y sigue tu progreso.
             </ThemedText>
@@ -94,12 +91,14 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   logo: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
+    // Banner ancho: el logo es cuadrado con fondo negro y el texto "MOBASE FIT"
+    // centrado, así que con `cover` recortamos el margen negro y queda una tira
+    // horizontal con la marca sobre un fondo negro redondeado.
+    width: 260,
+    height: 132,
+    borderRadius: 20,
     marginBottom: Spacing.three,
   },
-  title: { textAlign: 'center' },
   subtitle: {
     textAlign: 'center',
     paddingHorizontal: Spacing.four,

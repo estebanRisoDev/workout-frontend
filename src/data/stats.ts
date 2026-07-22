@@ -4,7 +4,8 @@
  * endpoints nuevos.
  */
 
-import { totalSets, totalVolume, type Workout } from './workouts';
+import type { WorkoutSession } from './history';
+import { totalSets, type Workout } from './workouts';
 
 /** Lunes a domingo, como se ordenan las barritas de la racha. */
 export const DIAS_SEMANA = [
@@ -54,22 +55,14 @@ function mismoDia(a: Date, b: Date): boolean {
 }
 
 /**
- * El workout que toca hoy.
- *
- * `Workout.day` es texto libre ("Día de empuje", "Lunes - Empuje"), así que se
- * busca el nombre del día de hoy dentro de ese texto. Si ninguno lo menciona,
- * se cae al más reciente para no dejar la tarjeta vacía.
+ * El workout que toca HOY, según el nombre del día en `Workout.day` (texto libre:
+ * "Lunes - Empuje", "Día de pierna Viernes"). Devuelve `undefined` si ninguna
+ * rutina corresponde a hoy: NO cae a "la más reciente" —si hoy no toca entrenar,
+ * el Inicio no muestra tarjeta (era confuso ver el viernes en un martes).
  */
 export function findTodaysWorkout(workouts: Workout[], now = new Date()): Workout | undefined {
-  if (workouts.length === 0) return undefined;
-
   const hoy = DIAS_SEMANA[indiceDia(now)];
-  const coincide = workouts.find((w) => w.day && normalizar(w.day).includes(normalizar(hoy)));
-  if (coincide) return coincide;
-
-  return [...workouts].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  )[0];
+  return workouts.find((w) => w.day && normalizar(w.day).includes(normalizar(hoy)));
 }
 
 /** ¿La tarjeta de hoy es un match real por día, o solo el más reciente? */
@@ -81,10 +74,11 @@ export function esDeHoy(workout: Workout, now = new Date()): boolean {
 /**
  * Estado de cada barrita de la racha:
  * - `done`   → el workout de ese día está completado (verde)
- * - `missed` → el día ya llegó y no está completado (gris claro)
- * - `future` → el día aún no llega (gris oscuro)
+ * - `missed` → el día ya llegó, tenía rutina y no se completó (gris claro)
+ * - `future` → el día tiene rutina pero aún no llega (gris oscuro)
+ * - `rest`   → ese día NO hay rutina registrada (descanso): no cuenta ni rompe racha
  */
-export type DayStatus = 'done' | 'missed' | 'future';
+export type DayStatus = 'done' | 'missed' | 'future' | 'rest';
 
 /** El workout asignado a un día de la semana, según el texto de `Workout.day`. */
 export function workoutForWeekday(workouts: Workout[], diaIndex: number): Workout | undefined {
@@ -114,10 +108,17 @@ export function weekStatuses(workouts: Workout[], now = new Date()): DayStatus[]
   const hoy = indiceDia(now);
 
   return DIAS_SEMANA.map((_, i) => {
-    if (i > hoy) return 'future';
     const workout = workoutForWeekday(workouts, i);
-    return workout && isWorkoutDone(workout) ? 'done' : 'missed';
+    // Sin rutina ese día → descanso: no rompe la racha ni cuenta como fallado.
+    if (!workout) return 'rest';
+    if (i > hoy) return 'future';
+    return isWorkoutDone(workout) ? 'done' : 'missed';
   });
+}
+
+/** Cuántos días de la semana tienen una rutina registrada (Lun/Mié/Vie = 3). */
+export function trainingDaysPerWeek(workouts: Workout[]): number {
+  return DIAS_SEMANA.reduce((n, _, i) => (workoutForWeekday(workouts, i) ? n + 1 : n), 0);
 }
 
 /**
@@ -130,11 +131,15 @@ export function streakDays(workouts: Workout[], now = new Date()): number {
   const estados = weekStatuses(workouts, now);
   const hoy = indiceDia(now);
 
-  let i = estados[hoy] === 'done' ? hoy : hoy - 1;
+  // Hoy en curso: si es un día de entreno aún no hecho ('missed'), no rompe la
+  // racha —se empieza a contar desde ayer.
+  let i = estados[hoy] === 'missed' ? hoy - 1 : hoy;
   let racha = 0;
-  while (i >= 0 && estados[i] === 'done') {
-    racha += 1;
-    i -= 1;
+  for (; i >= 0; i--) {
+    const e = estados[i];
+    if (e === 'done') racha += 1;
+    else if (e === 'rest' || e === 'future') continue; // descanso/futuro no rompen
+    else break; // un 'missed' pasado (día de rutina saltado) sí rompe la racha
   }
   return racha;
 }
@@ -152,6 +157,43 @@ export function monthCount(workouts: Workout[], now = new Date()): number {
   }).length;
 }
 
+/**
+ * Cuántas semanas (filas lunes→domingo de un calendario) tiene el mes en curso.
+ * Depende de en qué día cae el 1° y de cuántos días tiene: 4, 5 o 6.
+ */
+export function weeksInMonth(now = new Date()): number {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const diasDelMes = new Date(y, m + 1, 0).getDate();
+  const offsetPrimero = (new Date(y, m, 1).getDay() + 6) % 7; // 0 = lunes
+  return Math.ceil((diasDelMes + offsetPrimero) / 7);
+}
+
+/** Objetivo de entrenos del mes = días de rutina/semana × semanas del mes. */
+export function monthlyGoal(workouts: Workout[], now = new Date()): number {
+  return trainingDaysPerWeek(workouts) * weeksInMonth(now);
+}
+
+/**
+ * Entrenos COMPLETADOS en el mes: los archivados en el historial (WorkoutSession)
+ * más las rutinas completadas en la semana en curso (que aún no se archivan).
+ */
+export function workoutsDoneThisMonth(
+  sessions: WorkoutSession[],
+  workouts: Workout[],
+  now = new Date()
+): number {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const delHistorial = sessions.filter((s) => {
+    const d = new Date(s.completedAt);
+    return d.getFullYear() === y && d.getMonth() === m;
+  }).length;
+  // La semana en curso todavía no está archivada: se suman las rutinas ya hechas.
+  const deEstaSemana = workouts.filter(isWorkoutDone).length;
+  return delHistorial + deEstaSemana;
+}
+
 /** Duración estimada en minutos: descanso + ejecución de cada serie. */
 export function estimateMinutes(workout: Workout): number {
   const segundos = workout.exercises.reduce(
@@ -166,11 +208,86 @@ export function estimateMinutes(workout: Workout): number {
   return Math.round(segundos / 60);
 }
 
-/** Volumen acumulado de todas las rutinas, formateado ("32.4t", "850kg"). */
-export function formatTotalVolume(workouts: Workout[]): string {
-  const kg = workouts.reduce((acc, w) => acc + totalVolume(w), 0);
-  if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
-  return `${Math.round(kg)}kg`;
+/**
+ * Calorías quemadas en una rutina: suma del `caloriesBurned` de sus series
+ * hechas. Es la acumulación por rutina que alimenta la estadística. Las series
+ * sin hacer aportan 0 (su `caloriesBurned` es null).
+ */
+export function workoutCalories(workout: Workout): number {
+  return workout.exercises.reduce(
+    (acc, we) => acc + we.sets.reduce((s, set) => s + (set.caloriesBurned ?? 0), 0),
+    0
+  );
+}
+
+/** Calorías quemadas en todas las rutinas: la estadística acumulada del usuario. */
+export function totalCalories(workouts: Workout[]): number {
+  return workouts.reduce((acc, w) => acc + workoutCalories(w), 0);
+}
+
+/** Formatea calorías para las tarjetas: 1.240 → "1.2k", 640 → "640". */
+export function formatKcal(kcal: number): string {
+  const n = Math.round(kcal);
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+// =====================================================================
+// Historial (derivado de las WorkoutSession archivadas)
+// =====================================================================
+
+/** Etiqueta corta de fecha para el eje X: "13 jul". */
+function shortDate(iso: string): string {
+  return new Date(iso)
+    .toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+    .replace('.', '');
+}
+
+/** Punto de un gráfico de barras. */
+export type ChartPoint = { label: string; value: number };
+
+/** Calorías quemadas por semana (barras), cronológico, últimas `max` semanas. */
+export function caloriesByWeek(sessions: WorkoutSession[], max = 8): ChartPoint[] {
+  const porSemana = new Map<string, number>();
+  for (const s of sessions) {
+    porSemana.set(s.weekStart, (porSemana.get(s.weekStart) ?? 0) + s.totalCalories);
+  }
+  return [...porSemana.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-max)
+    .map(([week, kcal]) => ({ label: shortDate(week), value: Math.round(kcal) }));
+}
+
+/**
+ * Progresión de un ejercicio en el tiempo: peso tope por sesión (o total de reps
+ * si es peso corporal). Cronológico, últimas `max` sesiones que lo incluyeron.
+ */
+export function exerciseProgression(
+  sessions: WorkoutSession[],
+  exerciseId: string,
+  max = 8
+): ChartPoint[] {
+  const puntos: { date: string; value: number }[] = [];
+  for (const s of sessions) {
+    const sets = s.sets.filter((x) => x.exerciseId === exerciseId);
+    if (sets.length === 0) continue;
+    const pesoTope = Math.max(0, ...sets.map((x) => x.weightKg ?? 0));
+    const totalReps = sets.reduce((a, x) => a + x.reps, 0);
+    puntos.push({ date: s.completedAt, value: pesoTope > 0 ? pesoTope : totalReps });
+  }
+  return puntos
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-max)
+    .map((p) => ({ label: shortDate(p.date), value: Math.round(p.value * 10) / 10 }));
+}
+
+/** ¿La progresión de este ejercicio está en kg o en reps (peso corporal)? */
+export function progressionUnit(sessions: WorkoutSession[], exerciseId: string): 'kg' | 'reps' {
+  for (const s of sessions) {
+    for (const x of s.sets) {
+      if (x.exerciseId === exerciseId && (x.weightKg ?? 0) > 0) return 'kg';
+    }
+  }
+  return 'reps';
 }
 
 /** Resumen de una rutina para la meta-línea: "5 ejercicios · ~52 min · 18 series". */

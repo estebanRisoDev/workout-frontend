@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -10,11 +11,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CaloriesBurnedModal } from '@/components/calories-burned-modal';
+import { ExercisePickerModal } from '@/components/exercise-picker-modal';
+import { RestTimerBar } from '@/components/rest-timer-bar';
+import { ExerciseThumb } from '@/components/exercise-thumb';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { type WorkoutExercise, type WorkoutSet, type WorkoutSetInput } from '@/data/workouts';
-import { BottomTabInset, Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { caloriesForSet } from '@/data/nutrition';
+import { esDeHoy, workoutCalories, formatKcal } from '@/data/stats';
+import { type Exercise, type SetPatch, type WorkoutExercise, type WorkoutSet } from '@/data/workouts';
+import { BottomTabInset, FontFamily, Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/store/auth-store';
 import { useWorkouts } from '@/store/workouts-store';
 
 export default function WorkoutDetailScreen() {
@@ -28,14 +36,40 @@ export default function WorkoutDetailScreen() {
     updateWorkout,
     removeWorkout,
     addExercise,
-    updateExercise,
     removeExercise,
     addSet,
     updateSet,
     removeSet,
   } = useWorkouts();
 
+  const { user } = useAuth();
+  const [picking, setPicking] = useState(false);
+  // Calorías del último "done": no null ⇒ el pop-up está visible.
+  const [burnedKcal, setBurnedKcal] = useState<number | null>(null);
+  // Descanso en curso: segundos + un nonce que reinicia el conteo en cada serie.
+  const [restSecs, setRestSecs] = useState<number | null>(null);
+  const [restNonce, setRestNonce] = useState(0);
+
+  // Peso corporal para el cálculo de calorías (la fórmula MET escala con él).
+  // Si el perfil aún no tiene peso, se usa un valor neutro para no romper el cálculo.
+  const bodyWeightKg = user?.weightKg ?? 70;
+
+  // Identidades estables: evitan que el pop-up y la barra reinicien su animación
+  // o su conteo en cada render del padre.
+  const closeBurned = useCallback(() => setBurnedKcal(null), []);
+  const closeRest = useCallback(() => setRestSecs(null), []);
+  const startRest = useCallback((seconds: number) => {
+    setRestSecs(seconds);
+    setRestNonce((n) => n + 1);
+  }, []);
+
   const workout = getWorkout(id);
+
+  // Ids del catálogo ya presentes: el selector los marca como añadidos.
+  const existingExerciseIds = useMemo(
+    () => new Set(workout?.exercises.map((we) => we.exerciseId) ?? []),
+    [workout]
+  );
 
   // Entrar por deep link antes de que termine la carga inicial no es "no existe".
   if (!workout && status === 'loading') {
@@ -71,6 +105,14 @@ export default function WorkoutDetailScreen() {
     await removeWorkout(workout!.id);
     router.replace('/workouts');
   }
+
+  // Calorías acumuladas de la rutina: suma de las series ya marcadas como hechas.
+  const kcalRutina = workoutCalories(workout);
+
+  // Solo se puede REGISTRAR (marcar series hechas) el día que toca la rutina:
+  // marcar un "viernes" en otro día ensuciaría la racha y las calorías. Una rutina
+  // sin día asignado (libre) se puede registrar cuando sea.
+  const puedeRegistrar = !workout.day || esDeHoy(workout);
 
   return (
     <ThemedView style={styles.container}>
@@ -114,21 +156,54 @@ export default function WorkoutDetailScreen() {
           </ThemedText>
         ) : null}
 
+        {/* Aviso cuando no es el día de la rutina: se puede ver/ajustar, pero no
+            marcar series como hechas (eso cuenta para racha y calorías). */}
+        {!puedeRegistrar ? (
+          <ThemedView type="backgroundElement" style={styles.avisoDia}>
+            <ThemedText style={styles.avisoIcon}>📅</ThemedText>
+            <ThemedView type="backgroundElement" style={styles.avisoTextCol}>
+              <ThemedText type="smallBold">Hoy no toca esta rutina</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Es de «{workout.day}». Puedes verla y ajustarla; regístrala el día
+                que corresponde.
+              </ThemedText>
+            </ThemedView>
+          </ThemedView>
+        ) : null}
+
+        {/* Total de calorías de la rutina: aparece al marcar la primera serie. */}
+        {kcalRutina > 0 ? (
+          <ThemedView type="backgroundElement" style={styles.kcalCard}>
+            <ThemedText style={styles.kcalFire}>🔥</ThemedText>
+            <ThemedView type="backgroundElement" style={styles.kcalTextCol}>
+              <ThemedText type="subtitle">
+                {formatKcal(kcalRutina)}
+                <ThemedText type="small" themeColor="textSecondary"> kcal</ThemedText>
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                quemadas en esta rutina
+              </ThemedText>
+            </ThemedView>
+          </ThemedView>
+        ) : null}
+
         {workout.exercises.map((ex) => (
           <ExerciseCard
             key={ex.id}
             exercise={ex}
-            onRename={(name) => updateExercise(workout.id, ex.id, { name })}
-            onEditMuscle={(muscleGroup) => updateExercise(workout.id, ex.id, { muscleGroup })}
+            bodyWeightKg={bodyWeightKg}
+            canLog={puedeRegistrar}
             onRemove={() => void removeExercise(workout.id, ex.id)}
             onAddSet={() => void addSet(workout.id, ex.id)}
             onUpdateSet={(setId, patch) => updateSet(workout.id, ex.id, setId, patch)}
             onRemoveSet={(setId) => void removeSet(workout.id, ex.id, setId)}
+            onBurned={setBurnedKcal}
+            onRest={startRest}
           />
         ))}
 
         <Pressable
-          onPress={() => void addExercise(workout.id)}
+          onPress={() => setPicking(true)}
           style={({ pressed }) => pressed && styles.pressed}>
           <ThemedView type="backgroundSelected" style={styles.bigButton}>
             <ThemedText type="smallBold">+ Añadir ejercicio</ThemedText>
@@ -141,42 +216,66 @@ export default function WorkoutDetailScreen() {
           </ThemedText>
         </Pressable>
       </ScrollView>
+
+      <ExercisePickerModal
+        visible={picking}
+        existingExerciseIds={existingExerciseIds}
+        onPick={(ex: Exercise) => void addExercise(workout.id, ex.name, ex.muscleGroup)}
+        onClose={() => setPicking(false)}
+      />
+
+      <CaloriesBurnedModal
+        visible={burnedKcal !== null}
+        kcal={burnedKcal ?? 0}
+        onClose={closeBurned}
+      />
+
+      <RestTimerBar
+        visible={restSecs !== null}
+        durationSeconds={restSecs ?? 0}
+        restKey={restNonce}
+        onFinish={closeRest}
+      />
     </ThemedView>
   );
 }
 
 function ExerciseCard({
   exercise,
-  onRename,
-  onEditMuscle,
+  bodyWeightKg,
+  canLog,
   onRemove,
   onAddSet,
   onUpdateSet,
   onRemoveSet,
+  onBurned,
+  onRest,
 }: {
   exercise: WorkoutExercise;
-  onRename: (name: string) => void;
-  onEditMuscle: (muscleGroup: string) => void;
+  bodyWeightKg: number;
+  canLog: boolean;
   onRemove: () => void;
   onAddSet: () => void;
-  onUpdateSet: (setId: string, patch: WorkoutSetInput) => void;
+  onUpdateSet: (setId: string, patch: SetPatch) => void;
   onRemoveSet: (setId: string) => void;
+  onBurned: (kcal: number) => void;
+  onRest: (seconds: number) => void;
 }) {
   return (
     <ThemedView type="backgroundElement" style={styles.card}>
       <ThemedView type="backgroundElement" style={styles.cardHeader}>
+        <ExerciseThumb url={exercise.exercise.imageUrl} size={48} />
+        {/* Nombre y grupo salen del catálogo: solo lectura y envuelven hacia
+            abajo (antes eran inputs de una línea que recortaban el título). */}
         <ThemedView type="backgroundElement" style={styles.cardHeaderText}>
-          <Field
-            value={exercise.exercise.name}
-            onChangeText={onRename}
-            placeholder="Nombre del ejercicio"
-            textType="subtitle"
-          />
-          <Field
-            value={exercise.exercise.muscleGroup ?? ''}
-            onChangeText={onEditMuscle}
-            placeholder="Grupo muscular"
-          />
+          <ThemedText type="subtitle" style={styles.exerciseTitle}>
+            {exercise.exercise.name}
+          </ThemedText>
+          {exercise.exercise.muscleGroup ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {exercise.exercise.muscleGroup}
+            </ThemedText>
+          ) : null}
         </ThemedView>
         <Pressable onPress={onRemove} hitSlop={8}>
           <ThemedText type="small" themeColor="textSecondary">
@@ -190,7 +289,6 @@ function ExerciseCard({
         <ColHead label="#" flex={0.5} />
         <ColHead label="Reps" />
         <ColHead label="Kg" />
-        <ColHead label="RPE" />
         <ColHead label="✓" flex={0.6} />
         <ColHead label="" flex={0.5} />
       </ThemedView>
@@ -200,8 +298,14 @@ function ExerciseCard({
           key={set.id}
           index={i + 1}
           set={set}
+          met={exercise.exercise.met}
+          muscleGroup={exercise.exercise.muscleGroup}
+          bodyWeightKg={bodyWeightKg}
+          canLog={canLog}
           onUpdate={(patch) => onUpdateSet(set.id, patch)}
           onRemove={() => onRemoveSet(set.id)}
+          onBurned={onBurned}
+          onRest={onRest}
         />
       ))}
 
@@ -217,14 +321,56 @@ function ExerciseCard({
 function SetRow({
   index,
   set,
+  met,
+  muscleGroup,
+  bodyWeightKg,
+  canLog,
   onUpdate,
   onRemove,
+  onBurned,
+  onRest,
 }: {
   index: number;
   set: WorkoutSet;
-  onUpdate: (patch: WorkoutSetInput) => void;
+  met: number | null;
+  muscleGroup: string | null;
+  bodyWeightKg: number;
+  canLog: boolean;
+  onUpdate: (patch: SetPatch) => void;
   onRemove: () => void;
+  onBurned: (kcal: number) => void;
+  onRest: (seconds: number) => void;
 }) {
+  // Alternar "done": al PASAR a hecho se calculan las calorías de la serie (para
+  // el pop-up, el total en vivo y persistir en el backend) y arranca el descanso;
+  // al desmarcar, las calorías vuelven a null. Sin descanso definido se usan 90 s.
+  function toggleDone() {
+    // No se puede registrar si no es el día de la rutina (el checkbox va deshabilitado,
+    // pero se re-chequea acá por si acaso).
+    if (!canLog) return;
+    const nowDone = !set.done;
+    const kcal = nowDone
+      ? caloriesForSet({
+          met,
+          bodyWeightKg,
+          reps: set.reps,
+          restSeconds: set.restSeconds,
+          liftedWeightKg: set.weightKg,
+          muscleGroup,
+        })
+      : 0;
+
+    // `caloriesBurned` va en el patch para que el total reaccione al instante; el
+    // backend lo recalcula igual (misma fórmula) al persistir el `done`.
+    onUpdate({ done: nowDone, caloriesBurned: nowDone ? kcal : null });
+
+    if (nowDone) {
+      if (kcal > 0) onBurned(kcal);
+      const rest = set.restSeconds ?? 90;
+      if (rest > 0) onRest(rest);
+    }
+  }
+
   return (
     <ThemedView type="backgroundElement" style={styles.setRow}>
       <ThemedText type="small" themeColor="textSecondary" style={[styles.cell, { flex: 0.5 }]}>
@@ -237,14 +383,14 @@ function SetRow({
         onChangeNumber={(weightKg) => onUpdate({ weightKg })}
         placeholder="-"
       />
-      <NumberCell value={set.rpe} onChangeNumber={(rpe) => onUpdate({ rpe })} placeholder="-" />
       <Pressable
-        onPress={() => onUpdate({ done: !set.done })}
+        onPress={toggleDone}
+        disabled={!canLog}
         style={[styles.cell, { flex: 0.6 }]}
         hitSlop={6}>
         <ThemedView
           type={set.done ? 'backgroundSelected' : 'backgroundElement'}
-          style={styles.checkbox}>
+          style={[styles.checkbox, !canLog && styles.checkboxDisabled]}>
           <ThemedText type="small">{set.done ? '✓' : ''}</ThemedText>
         </ThemedView>
       </Pressable>
@@ -341,20 +487,43 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   inputTitle: {
+    fontFamily: FontFamily.displayBold,
     fontSize: 40,
-    fontWeight: '600',
     lineHeight: 46,
   },
   inputSubtitle: {
+    fontFamily: FontFamily.displaySemiBold,
     fontSize: 24,
-    fontWeight: '600',
     lineHeight: 30,
   },
   inputDefault: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 16,
-    fontWeight: '500',
     lineHeight: 24,
   },
+  kcalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    padding: Spacing.three,
+    borderRadius: Spacing.four,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,140,0,0.35)',
+  },
+  kcalFire: { fontSize: 32, lineHeight: 38 },
+  kcalTextCol: { gap: Spacing.half },
+  avisoDia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    padding: Spacing.three,
+    borderRadius: Spacing.four,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(91,147,201,0.4)',
+  },
+  avisoIcon: { fontSize: 26, lineHeight: 32 },
+  avisoTextCol: { flex: 1, gap: Spacing.half },
+  checkboxDisabled: { opacity: 0.35 },
   card: {
     padding: Spacing.three,
     borderRadius: Spacing.four,
@@ -369,7 +538,11 @@ const styles = StyleSheet.create({
   cardHeaderText: {
     flex: 1,
     gap: Spacing.half,
+    // flexShrink evita que un título largo empuje la ✕ fuera del margen; el
+    // texto envuelve hacia abajo en vez de recortarse.
+    flexShrink: 1,
   },
+  exerciseTitle: { flexShrink: 1 },
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',

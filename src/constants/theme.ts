@@ -7,21 +7,27 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+/**
+ * Paleta única (la app es siempre oscura, no sigue el modo del sistema):
+ * - `text`               blanco               → tipografía
+ * - `background`         gris oscuro (base)   → fondo de pantalla
+ * - `backgroundElement`  negro (secundario)   → tarjetas / superficies
+ * - `backgroundSelected` azul oscuro (terc.)  → seleccionado / realce
+ *
+ * `light` y `dark` son idénticos a propósito: así el color no depende de si el
+ * teléfono está en claro u oscuro; siempre se ve esta paleta.
+ */
+const Palette = {
+  text: '#FFFFFF',
+  background: '#24262B',
+  backgroundElement: '#000000',
+  backgroundSelected: '#16294A',
+  textSecondary: '#A7ABB3',
+} as const;
+
 export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
+  light: Palette,
+  dark: Palette,
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
@@ -32,8 +38,10 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
  *
  * Se usa siempre con texto/íconos negros encima, así que tiene que mantenerse
  * claro y saturado para conservar el contraste.
+ *
+ * Azul acero de la marca MOBASE FIT (el mismo del "FIT" del logo).
  */
-export const Accent = '#38bdf8';
+export const Accent = '#5B93C9';
 
 export const Fonts = Platform.select({
   ios: {
@@ -59,6 +67,25 @@ export const Fonts = Platform.select({
     mono: 'var(--font-mono)',
   },
 });
+
+/**
+ * Familias tipográficas de la app (cargadas en `_layout.tsx` con `useFonts`).
+ *
+ * Space Grotesk para títulos: geométrica, con carácter, look deportivo/técnico.
+ * Inter para el cuerpo: limpia y muy legible en tamaños chicos.
+ *
+ * En React Native el peso NO se controla con `fontWeight` cuando hay fuente
+ * propia (sobre todo en Android): cada peso es una familia distinta. Por eso se
+ * elige la variante concreta aquí y en los estilos se omite `fontWeight`.
+ */
+export const FontFamily = {
+  displaySemiBold: 'SpaceGrotesk_600SemiBold',
+  displayBold: 'SpaceGrotesk_700Bold',
+  bodyRegular: 'Inter_400Regular',
+  bodyMedium: 'Inter_500Medium',
+  bodySemiBold: 'Inter_600SemiBold',
+  bodyBold: 'Inter_700Bold',
+} as const;
 
 export const Spacing = {
   half: 2,

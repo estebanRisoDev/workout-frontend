@@ -14,6 +14,14 @@ export type Exercise = {
   id: string;
   name: string;
   muscleGroup: string | null;
+  /** URL de la imagen ilustrativa. `null` en el catálogo antiguo → placeholder. */
+  imageUrl: string | null;
+  /**
+   * MET (Metabolic Equivalent of Task): cuánto gasta el ejercicio respecto al
+   * reposo. Alimenta el medidor de calorías (ver `caloriesForSet` en
+   * nutrition.ts). `null` en ejercicios sin clasificar → cae a un MET por defecto.
+   */
+  met: number | null;
   createdAt?: string;
 };
 
@@ -25,11 +33,15 @@ export type WorkoutSet = {
   reps: number;
   /** Peso en kg. `null` = peso corporal / sin carga. */
   weightKg: number | null;
-  /** Rate of Perceived Exertion (1-10). */
-  rpe: number | null;
   /** Descanso objetivo en segundos. */
   restSeconds: number | null;
   done: boolean;
+  /**
+   * Calorías quemadas en la serie, congeladas al marcarla como hecha (MET +
+   * trabajo mecánico). `null` mientras no esté hecha. La suma por rutina es la
+   * estadística de calorías. La calcula el backend; el cliente la refleja.
+   */
+  caloriesBurned: number | null;
   createdAt?: string;
 };
 
@@ -58,6 +70,18 @@ export type Workout = {
   exercises: WorkoutExercise[];
 };
 
+/** Sexo biológico para la fórmula de Mifflin-St Jeor (male: +5, female: −161). */
+export type Sex = 'male' | 'female';
+
+/** Nivel de actividad; cada uno mapea a un multiplicador del TDEE en nutrition.ts. */
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'high' | 'very_high';
+
+/** Objetivo / tipo de dieta elegido por el usuario. */
+export type Goal = 'maintenance' | 'hypertrophy' | 'cut';
+
+/** Rol del usuario. La app es personal de un único profesor; el resto son alumnos. */
+export type UserRole = 'user' | 'teacher';
+
 export type User = {
   id: string;
   email: string;
@@ -66,7 +90,29 @@ export type User = {
   googleId: string | null;
   /** Foto de perfil que entrega Google. */
   avatarUrl: string | null;
+  /** "user" (alumno) o "teacher" (el profesor dueño de la app). */
+  role: UserRole;
   createdAt?: string;
+
+  // Datos físicos que captura el onboarding. `null` mientras no los complete.
+  sex: Sex | null;
+  age: number | null;
+  weightKg: number | null;
+  heightCm: number | null;
+  activityLevel: ActivityLevel | null;
+  /** Objetivo/tipo de dieta elegido en el onboarding. */
+  goal: Goal | null;
+
+  // Pliegues cutáneos Jackson-Pollock 7, en milímetros. Opcionales e
+  // independientes del cálculo calórico: solo alimentan la estimación de % de
+  // grasa (ver `bodyFatPercent` en nutrition.ts). `null` mientras no se midan.
+  skinfoldChest: number | null;
+  skinfoldMidaxillary: number | null;
+  skinfoldTriceps: number | null;
+  skinfoldSubscapular: number | null;
+  skinfoldAbdominal: number | null;
+  skinfoldSuprailiac: number | null;
+  skinfoldThigh: number | null;
 };
 
 // --- Payloads de escritura (lo que aceptan los endpoints) ---
@@ -81,8 +127,15 @@ export type WorkoutExerciseInput = {
 };
 
 export type WorkoutSetInput = Partial<
-  Pick<WorkoutSet, 'reps' | 'weightKg' | 'rpe' | 'restSeconds' | 'done' | 'order'>
+  Pick<WorkoutSet, 'reps' | 'weightKg' | 'restSeconds' | 'done' | 'order'>
 >;
+
+/**
+ * Patch de una serie desde el cliente. Además de los campos del endpoint, lleva
+ * `caloriesBurned` como valor LOCAL (optimista, para que el total reaccione al
+ * instante); el store no lo envía al backend, que lo recalcula por su cuenta.
+ */
+export type SetPatch = WorkoutSetInput & { caloriesBurned?: number | null };
 
 // --- Valores por defecto ---
 
@@ -99,6 +152,11 @@ export const defaultExerciseName = 'Nuevo ejercicio';
 
 // --- Utilidades de lectura ---
 
+/** ¿Este usuario es el profesor (dueño de la app)? */
+export function isTeacher(user: User | null): boolean {
+  return user?.role === 'teacher';
+}
+
 /** Nombre visible de un ejercicio de rutina. */
 export function exerciseName(we: WorkoutExercise): string {
   return we.exercise.name;
@@ -109,13 +167,6 @@ export function totalSets(workout: Workout): number {
   return workout.exercises.reduce((acc, we) => acc + we.sets.length, 0);
 }
 
-/** Volumen total (kg) = suma de reps * peso. Las series sin peso suman 0. */
-export function totalVolume(workout: Workout): number {
-  return workout.exercises.reduce(
-    (acc, we) => acc + we.sets.reduce((s, set) => s + set.reps * (set.weightKg ?? 0), 0),
-    0
-  );
-}
 
 /** Fecha de la rutina en formato corto para las tarjetas. */
 export function formatWorkoutDate(workout: Workout): string {

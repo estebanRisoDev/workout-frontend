@@ -1,20 +1,37 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
+import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { useFonts } from 'expo-font';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { ActivityIndicator, StyleSheet, useColorScheme, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
+import OnboardingFlow from '@/components/onboarding-flow';
+import { isProfileComplete } from '@/data/nutrition';
 import { AuthProvider, useAuth } from '@/store/auth-store';
 import { WorkoutsProvider } from '@/store/workouts-store';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  // Las fuentes se cargan en runtime; hasta que estén, se mantiene el splash
+  // nativo (preventAutoHideAsync) para no mostrar un parpadeo con Roboto.
+  const [fontsLoaded] = useFonts({
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+
+  if (!fontsLoaded) return null;
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={DarkTheme}>
       <AuthProvider>
         {/*
           WorkoutsProvider va SIEMPRE montado, incluso sin sesión.
@@ -43,9 +60,12 @@ export default function RootLayout() {
  * dispararía requests que el backend rechaza con 401.
  */
 function AuthGate() {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // Con sesión pero sin datos físicos: el onboarding va antes que la app.
+  const necesitaOnboarding = status === 'authenticated' && !isProfileComplete(user);
 
   /**
    * Oculta el splash nativo cuando NO hay sesión.
@@ -56,12 +76,14 @@ function AuthGate() {
    * encima del login: la app funciona, pero está tapada.
    */
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // El <AnimatedSplashOverlay> solo se monta con la app completa; en el login y
+    // en el onboarding hay que ocultar el splash nativo a mano para no taparlos.
+    if (status === 'unauthenticated' || necesitaOnboarding) {
       SplashScreen.hideAsync().catch(() => {
         // Si ya estaba oculto, no hay nada que hacer.
       });
     }
-  }, [status]);
+  }, [status, necesitaOnboarding]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -86,6 +108,11 @@ function AuthGate() {
   if (status === 'unauthenticated') {
     // `Slot` renderiza la ruta actual, que el efecto de arriba fuerza a /login.
     return <Slot />;
+  }
+
+  // Sesión iniciada pero perfil incompleto: onboarding a pantalla completa.
+  if (necesitaOnboarding) {
+    return <OnboardingFlow />;
   }
 
   return (

@@ -30,6 +30,7 @@ import {
   type User,
   type Workout,
   type WorkoutExercise,
+  type SetPatch,
   type WorkoutExerciseInput,
   type WorkoutInput,
   type WorkoutSet,
@@ -75,7 +76,11 @@ type WorkoutsContextValue = {
   updateWorkout: (id: string, patch: WorkoutInput) => void;
   removeWorkout: (id: string) => Promise<void>;
 
-  addExercise: (workoutId: string, name?: string) => Promise<void>;
+  addExercise: (
+    workoutId: string,
+    name?: string,
+    muscleGroup?: string | null
+  ) => Promise<void>;
   updateExercise: (
     workoutId: string,
     workoutExerciseId: string,
@@ -88,7 +93,9 @@ type WorkoutsContextValue = {
     workoutId: string,
     workoutExerciseId: string,
     setId: string,
-    patch: WorkoutSetInput
+    // `caloriesBurned` es local (para actualizar el total en vivo); NO se envía al
+    // backend, que lo recalcula solo. El resto sí va al endpoint.
+    patch: SetPatch
   ) => void;
   removeSet: (workoutId: string, workoutExerciseId: string, setId: string) => Promise<void>;
 };
@@ -292,9 +299,11 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   // --- Ejercicios de la rutina ---
 
   const addExercise = useCallback<WorkoutsContextValue['addExercise']>(
-    async (workoutId, name = defaultExerciseName) => {
+    async (workoutId, name = defaultExerciseName, muscleGroup) => {
       try {
-        const created = await api.createWorkoutExercise(workoutId, { name });
+        // Al elegir del catálogo, el nombre exacto hace que el backend enlace la
+        // entrada existente (con su imagen y grupo) en vez de crear una nueva.
+        const created = await api.createWorkoutExercise(workoutId, { name, muscleGroup });
         mapWorkout(workoutId, (w) => ({ ...w, exercises: [...w.exercises, created] }));
       } catch (e) {
         handleWriteError(e);
@@ -355,7 +364,6 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
         ? {
             reps: last.reps,
             weightKg: last.weightKg,
-            rpe: last.rpe,
             restSeconds: last.restSeconds,
             done: false,
           }
@@ -373,11 +381,15 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
 
   const updateSet = useCallback<WorkoutsContextValue['updateSet']>(
     (workoutId, weId, setId, patch) => {
+      // El patch local incluye `caloriesBurned` (para que el total reaccione al
+      // instante), pero al backend solo se le mandan los campos que acepta: él
+      // recalcula las calorías por su cuenta.
+      const { caloriesBurned: _ignored, ...netPatch } = patch;
       mapExercise(workoutId, weId, (we) => ({
         ...we,
         sets: we.sets.map((s) => (s.id === setId ? { ...s, ...patch } : s)),
       }));
-      scheduleWrite(`set:${setId}`, patch, (merged) => api.updateWorkoutSet(setId, merged));
+      scheduleWrite(`set:${setId}`, netPatch, (merged) => api.updateWorkoutSet(setId, merged));
     },
     [mapExercise, scheduleWrite]
   );

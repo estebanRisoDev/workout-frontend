@@ -26,6 +26,19 @@ export function createWorkout(input: WorkoutInput = {}): Promise<Workout> {
   return request<Workout>('/workouts', { method: 'POST', body: input });
 }
 
+/**
+ * Siembra las rutinas base de principiante (lunes/miércoles/viernes) para el
+ * usuario del token. Idempotente en el backend: si ya tiene rutinas, no duplica.
+ * Devuelve la lista completa resultante.
+ */
+export function seedBeginnerWorkouts(): Promise<{
+  created: boolean;
+  count?: number;
+  workouts: Workout[];
+}> {
+  return request('/workouts/seed-beginner', { method: 'POST', body: {} });
+}
+
 export function updateWorkout(id: string, input: WorkoutInput): Promise<Workout> {
   return request<Workout>(`/workouts/${id}`, { method: 'PUT', body: input });
 }

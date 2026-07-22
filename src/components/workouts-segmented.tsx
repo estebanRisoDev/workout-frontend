@@ -49,6 +49,12 @@ export function WorkoutsSegmented() {
 
 const styles = StyleSheet.create({
   container: {
+    // `width: 100%` es clave: sin ancho definido el contenedor se encogía al
+    // contenido y el `flex: 1` de las pestañas no tenía espacio libre que
+    // repartir, así que cada una quedaba del ancho de su texto (y la pastilla
+    // activa cambiaba de tamaño según la palabra). Con ancho completo, las dos
+    // pestañas son mitades exactas e idénticas.
+    width: '100%',
     flexDirection: 'row',
     borderRadius: Spacing.three,
     padding: Spacing.half,
@@ -56,6 +62,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.two,
